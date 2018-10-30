@@ -6,59 +6,72 @@ void sendnlmsg(int pid, int choose)
 {
     struct sk_buff *skb;
     struct nlmsghdr *nlh;
-//	char msg[30] = "Say hello from kernel";
-
-    if(!nl_sk) {
-        return;
-    }
-
-    skb = nlmsg_new(MAX_PAYLOAD_SIZE,GFP_KERNEL);
-    if(!skb) {
-        printk(KERN_ERR"nlmsg_new eror!\n");
-    }
-    nlh = nlmsg_put(skb,0,0,0,MAX_PAYLOAD_SIZE,0);
-
-//	memcpy(NLMSG_DATA(nlh),msg,sizeof(msg));
-//	printk("Send message'%s'.\n",(char*)NLMSG_DATA(nlh));
-
-    struct task_struct *p;
+    struct task_struct *p, *see;
     struct list_head *pp=0;
     struct task_struct *psibling;
     char ppid[10]="";
-    char parent[2048]="";
+    char ccomm[100]="";
+    char ancestor[2048]="";
+    int display[2048];
+    char disComm[2048][2048];
     char sibling[2048]="";
     char children[2048]="";
 
-//INIT_LIST_HEAD(pp);
+    if(!nl_sk) return;
+
+    skb = nlmsg_new(MAX_PAYLOAD_SIZE,GFP_KERNEL);
+    if(!skb) printk(KERN_ERR"nlmsg_new eror!\n");
+    nlh = nlmsg_put(skb,0,0,0,MAX_PAYLOAD_SIZE,0);
 
     //current processor
     p = pid_task(find_vpid(pid), PIDTYPE_PID);
 
+    int i=1;
+    //-p
     if(choose == 1) {
-        if(p == NULL) memcpy(NLMSG_DATA(nlh),parent,sizeof(parent));
+        if(p == NULL) memcpy(NLMSG_DATA(nlh),ancestor,sizeof(ancestor));
         else {
             //parent
             if(p->parent == NULL) {
-                printk("No Parent\n");
-                strcat(parent,"\n");
-                strcat(parent,"    ");
+//				printk("No Parent\n");
+                strcat(ancestor,"\n");
+                strcat(ancestor,"    ");
             } else {
-                sprintf(ppid,"(%d)",p->parent->pid);
-                strcat(parent,p->parent->comm);
-                strcat(parent,ppid);
-                strcat(parent,"\n");
-                strcat(parent,"    ");
-                printk("%s(%d)\n", p->parent->comm, p->parent->pid);
+                //current
+                display[0]=p->pid;
+                strcpy(disComm[0],p->comm);
+                do {
+                    display[i]=p->parent->pid;
+                    strcpy(disComm[i],p->parent->comm);
+                    p=p->parent;
+                    i++;
+                } while(p->pid != 0);
+
+                int jj=0,countJJ;
+                int j=i-1;
+                int trans[2048];
+                char transComm[2048][2048];
+                while(j>=0) {
+                    trans[jj]=display[j];
+                    sprintf(ccomm,"%s",disComm[j]);
+                    sprintf(ppid,"(%d)",trans[jj]);
+                    strcat(ancestor,ccomm);
+                    strcat(ancestor,ppid);
+                    strcat(ancestor,"\n");
+                    countJJ=jj;
+                    while(countJJ>=0) {
+                        strcat(ancestor,"    ");
+                        countJJ--;
+                    }
+                    j--;
+                    jj++;
+                }
             }
-            //current
-            sprintf(ppid,"(%d)",p->pid);
-            strcat(parent,p->comm);
-            strcat(parent,ppid);
-            strcat(parent,"\n");
-            memcpy(NLMSG_DATA(nlh),parent,sizeof(parent));
+            memcpy(NLMSG_DATA(nlh),ancestor,sizeof(ancestor));
         }
     }
 
+    //-s
     if(choose == 2) {
         if(p == NULL) memcpy(NLMSG_DATA(nlh),sibling,sizeof(sibling));
         else {
@@ -73,13 +86,14 @@ void sendnlmsg(int pid, int choose)
                     strcat(sibling,psibling->comm);
                     strcat(sibling,ppid);
                     strcat(sibling,"\n");
-                    printk("    %s(%d)\n", psibling->comm, psibling->pid);
+                    //      			printk("    %s(%d)\n", psibling->comm, psibling->pid);
                     memcpy(NLMSG_DATA(nlh),sibling,sizeof(sibling));
                 }
             }
         }
     }
 
+    //-c
     if(choose == 3) {
         if(p == NULL) memcpy(NLMSG_DATA(nlh),children,sizeof(children));
         else {
@@ -101,7 +115,7 @@ void sendnlmsg(int pid, int choose)
                     strcat(children,ppid);
                     strcat(children,"\n");
                     strcat(children,"    ");
-                    printk("        %s(%d)\n", psibling->comm, psibling->pid);
+                    //    			printk("        %s(%d)\n", psibling->comm, psibling->pid);
                     memcpy(NLMSG_DATA(nlh),children,sizeof(children));
                 }
             }
@@ -119,9 +133,8 @@ void nl_data_ready(struct sk_buff *__skb)
     skb = skb_get (__skb);
     if(skb->len >= NLMSG_SPACE(0)) {
         nlh = nlmsg_hdr(skb);
-
         memcpy(str, NLMSG_DATA(nlh), sizeof(str));
-        printk("Message received:%s\n",str) ;
+        //printk("Message received:%s\n",str) ;
         sendnlmsg(nlh->nlmsg_pid, nlh->nlmsg_seq);
         kfree_skb(skb);
     }
@@ -138,7 +151,6 @@ static int netlink_unicast_init(void)
         printk(KERN_ERR "netlink_unicast_init: Create netlink socket error.\n");
         return -1;
     }
-
     printk("netlink_unicast_init: Create netlink socket ok.\n");
     return 0;
 }
@@ -148,7 +160,6 @@ static void netlink_unicast_exit(void)
     if(nl_sk != NULL) {
         sock_release(nl_sk->sk_socket);
     }
-
     printk("netlink_unicast_exit!\n");
 }
 
@@ -156,5 +167,3 @@ module_init(netlink_unicast_init);
 module_exit(netlink_unicast_exit);
 //MODULE_AUTHOR("X-SLAM XINU");
 MODULE_LICENSE("GPL");
-
-
